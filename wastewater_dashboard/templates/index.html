@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wastewater Treatment Plant Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <h1>Wastewater Treatment Plant Dashboard</h1>
+    <div id="dashboard">
+        <div id="pump-chart"></div>
+        <div id="aeration-chart"></div>
+        <div id="grid-chart"></div>
+    </div>
+
+    <script>
+        console.log("Script started");
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+        });
+
+        socket.on('error', (error) => {
+            console.error('Socket.IO Error:', error);
+        });
+
+        socket.on('initial_data', (data) => {
+            console.log('Received initial data:', data);
+            updateCharts(data);
+        });
+
+        function updateCharts(data) {
+    try {
+        // Group pump data by pump_id
+        const pumpGroups = {};
+        data.pump_data.forEach(d => {
+            if (!pumpGroups[d.pump_id]) {
+                pumpGroups[d.pump_id] = [];
+            }
+            pumpGroups[d.pump_id].push(d);
+        });
+
+        // Create traces for each pump
+        const pumpTraces = [];
+        const pumpIds = Object.keys(pumpGroups);
+        const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'];
+
+        pumpIds.forEach((pumpId, index) => {
+            const pumpData = pumpGroups[pumpId];
+            const color = colors[index % colors.length];
+            pumpTraces.push({
+                x: pumpData.map(d => new Date(d.timestamp)),
+                y: pumpData.map(d => d.power),
+                type: 'scatter',
+                mode: 'lines',
+                name: `Pump ${pumpId}`,
+                line: {color: color, width: 2},
+                legendgroup: `pump${pumpId}`,
+                showlegend: true
+            });
+            pumpTraces.push({
+                x: pumpData.map(d => new Date(d.timestamp)),
+                y: pumpData.map(d => d.optimized_power),
+                type: 'scatter',
+                mode: 'lines',
+                name: `Pump ${pumpId} (Optimized)`,
+                line: {color: color, width: 2, dash: 'dash'},
+                legendgroup: `pump${pumpId}`,
+                showlegend: true
+            });
+        });
+
+        const pumpLayout = {
+            title: 'Pump Power Over Time',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Power (kW)' },
+            legend: { groupclick: 'toggleitem' },
+            updatemenus: [{
+                buttons: [
+                    {args: [{'visible': pumpTraces.map(() => true)}], label: 'All', method: 'restyle'},
+                    ...pumpIds.map((id, index) => ({
+                        args: [{'visible': pumpTraces.map((_, i) => Math.floor(i/2) === index)}],
+                        label: `Pump ${id}`,
+                        method: 'restyle'
+                    }))
+                ],
+                direction: 'down',
+                showactive: true,
+                x: 0.1,
+                y: 1.15
+            }]
+        };
+
+        Plotly.newPlot('pump-chart', pumpTraces, pumpLayout);
+
+        // Aeration chart
+        const aerationGroups = {};
+        data.aeration_data.forEach(d => {
+            const id = d.basin_id || d.sensor_id || 'default';
+            if (!aerationGroups[id]) {
+                aerationGroups[id] = [];
+            }
+            aerationGroups[id].push(d);
+        });
+
+        const aerationTraces = [];
+        const basinIds = Object.keys(aerationGroups);
+        const aerationColors = ['#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#8c564b'];
+
+        basinIds.forEach((basinId, index) => {
+            const basinData = aerationGroups[basinId];
+            const color = aerationColors[index % aerationColors.length];
+            aerationTraces.push({
+                x: basinData.map(d => new Date(d.timestamp)),
+                y: basinData.map(d => d.dissolved_oxygen),
+                type: 'scatter',
+                mode: 'lines',
+                name: `Basin ${basinId}`,
+                line: {color: color, width: 2},
+                legendgroup: `basin${basinId}`,
+                showlegend: true
+            });
+            aerationTraces.push({
+                x: basinData.map(d => new Date(d.timestamp)),
+                y: basinData.map(d => d.optimized_dissolved_oxygen),
+                type: 'scatter',
+                mode: 'lines',
+                name: `Basin ${basinId} (Optimized)`,
+                line: {color: color, width: 2, dash: 'dash'},
+                legendgroup: `basin${basinId}`,
+                showlegend: true
+            });
+        });
+
+        const aerationLayout = {
+            title: 'Dissolved Oxygen Over Time',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Dissolved Oxygen (mg/L)' },
+            legend: { groupclick: 'toggleitem' },
+            updatemenus: [{
+                buttons: [
+                    {args: [{'visible': aerationTraces.map(() => true)}], label: 'All', method: 'restyle'},
+                    ...basinIds.map((id, index) => ({
+                        args: [{'visible': aerationTraces.map((_, i) => Math.floor(i/2) === index)}],
+                        label: `Basin ${id}`,
+                        method: 'restyle'
+                    }))
+                ],
+                direction: 'down',
+                showactive: true,
+                x: 0.1,
+                y: 1.15
+            }]
+        };
+
+        Plotly.newPlot('aeration-chart', aerationTraces, aerationLayout);
+
+        // Update grid chart
+        const gridDemandTrace = {
+            x: data.grid_data.map(d => new Date(d.timestamp)),
+            y: data.grid_data.map(d => d.demand),
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: 'Grid Demand'
+        };
+        const gridPriceTrace = {
+            x: data.grid_data.map(d => new Date(d.timestamp)),
+            y: data.grid_data.map(d => d.price),
+            type: 'scatter',
+            mode: 'lines+markers',
+            name: 'Grid Price',
+            yaxis: 'y2'
+        };
+
+        Plotly.newPlot('grid-chart', [gridDemandTrace, gridPriceTrace], {
+            title: 'Grid Demand and Price Over Time',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Demand (kW)' },
+            yaxis2: {
+                title: 'Price ($)',
+                overlaying: 'y',
+                side: 'right'
+            }
+        });
+
+        console.log('Charts updated successfully');
+    } catch (error) {
+        console.error('Error updating charts:', error);
+    }
+}
+    </script>
+</body>
+</html>
