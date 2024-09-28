@@ -1,0 +1,54 @@
+version: '3'
+services:
+  # MongoDB
+  mongo:
+    image: mongo:4.4
+    networks:
+      - fiware
+
+  # Orion Context Broker
+  orion:
+    image: fiware/orion:3.0.0
+    ports:
+      - "1026:1026"
+    depends_on:
+      - mongo
+    command: -dbhost mongo
+    networks:
+      - fiware
+
+  # IoT Agent MQTT
+  iot-agent:
+    image: fiware/iotagent-json:latest
+    ports:
+      - "4041:4041"
+    depends_on:
+      - mongo
+    environment:
+      - IOTA_CB_HOST=orion
+      - IOTA_CB_PORT=1026
+      - IOTA_NORTH_PORT=4041
+      - IOTA_REGISTRY_TYPE=mongodb
+      - IOTA_LOG_LEVEL=DEBUG
+      - IOTA_TIMESTAMP=true
+      - IOTA_CB_NGSI_VERSION=v2
+      - IOTA_AUTOCAST=true
+      - IOTA_MONGO_HOST=mongo
+      - IOTA_MONGO_PORT=27017
+      - IOTA_MONGO_DB=iotagent-json
+      - IOTA_MQTT_HOST=mosquitto
+      - IOTA_MQTT_PORT=1883
+    networks:
+      - fiware
+
+  # MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:1.6.15
+    ports:
+      - "1883:1883"
+    networks:
+      - fiware
+
+networks:
+  fiware:
+    driver: bridge
